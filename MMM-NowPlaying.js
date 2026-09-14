@@ -29,6 +29,57 @@ Module.register("MMM-NowPlaying", {
 		return ["MMM-NowPlaying.css"];
 	},
 
+	// ---- kontrol keyboard (via MMM-KeyBindings) --------------------
+	// Bekerja pada speaker aktif pertama. Tombol: Space/k play-pause,
+	// n/b lagu berikut-sebelum, +/- volume naik-turun.
+	notificationReceived: function (notification, payload) {
+		if (notification !== "KEYPRESS") return;
+
+		const key = (payload && payload.keyName) || payload;
+		const device = (this.playing || [])[0];
+		if (!device) return;
+
+		const send = (action) => {
+			this.sendSocketNotification("NOWPLAYING_CONTROL", { host: device.host, action });
+		};
+
+		switch (key) {
+			case " ":
+			case "Space":
+			case "k": {
+				const isPlaying = device.playerState === "PLAYING" || device.playerState === "BUFFERING";
+				send(isPlaying ? "pause" : "play");
+				device.playerState = isPlaying ? "PAUSED" : "PLAYING";
+				this.updateDom(0);
+				break;
+			}
+			case "n":
+				send("next");
+				break;
+			case "b":
+				send("prev");
+				break;
+			case "+":
+			case "=":
+			case "u":
+				send("volume_up");
+				this.sendNotification("SHOW_ALERT", {
+					type: "notification", title: "🔊 Volume +", message: device.deviceName, timer: 1500
+				});
+				break;
+			case "-":
+			case "_":
+			case "d":
+				send("volume_down");
+				this.sendNotification("SHOW_ALERT", {
+					type: "notification", title: "🔉 Volume −", message: device.deviceName, timer: 1500
+				});
+				break;
+			default:
+				break;
+		}
+	},
+
 	socketNotificationReceived: function (notification, payload) {
 		if (notification === "NOWPLAYING_STATE") {
 			if (payload.settings) this.settings = payload.settings;
@@ -63,6 +114,8 @@ Module.register("MMM-NowPlaying", {
 		const wrapper = document.createElement("div");
 		wrapper.className = "mmm-nowplaying-wrapper";
 		wrapper.style.maxWidth = this.config.maxWidth;
+		wrapper.style.width = "100%";
+		wrapper.style.margin = "0 auto"; // kartu berada tepat di tengah region
 
 		if (!this.loaded || this.playing.length === 0) {
 			return wrapper; // show nothing when idle

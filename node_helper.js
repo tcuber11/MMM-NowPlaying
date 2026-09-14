@@ -37,7 +37,7 @@ module.exports = NodeHelper.create({
 		this.ensureDataDir();
 		this.loadCachedDevices();
 		this.loadSettings();
-		console.log("[MMM-NowPlaying] helper started");
+		console.log("[MMM-NowPlaying] helper started v2");
 	},
 
 	socketNotificationReceived: function (notification, payload) {
@@ -47,7 +47,7 @@ module.exports = NodeHelper.create({
 			this.startPolling();
 			this.startAdminServer();
 		} else if (notification === "NOWPLAYING_CONTROL") {
-			this.sendControl(payload.host, payload.action);
+			this.sendControl(payload.host, payload.action, payload.value);
 		}
 	},
 
@@ -219,7 +219,7 @@ module.exports = NodeHelper.create({
 			}
 		};
 
-		const timer = setTimeout(() => settle(null), 4500);
+		const timer = setTimeout(() => { console.log('[NowPlaying] poll timeout for', device.host); settle(null); }, 8000);
 
 		client.on("error", () => { clearTimeout(timer); settle(null); });
 
@@ -243,6 +243,7 @@ module.exports = NodeHelper.create({
 						const meta   = (ms.media && ms.media.metadata) || {};
 						const images = meta.images || [];
 
+						console.log("[NowPlaying] FOUND PLAYING:", device.name, "->", meta.title, "by", meta.artist);
 						settle({
 							deviceName:  device.name,
 							host:        device.host,
@@ -261,7 +262,7 @@ module.exports = NodeHelper.create({
 
 	// ---- transport controls ----------------------------------------
 
-	sendControl: function (host, action) {
+	sendControl: function (host, action, value) {
 		const device = this.devices[host];
 		if (!device) return;
 
@@ -283,6 +284,19 @@ module.exports = NodeHelper.create({
 		client.on("error", finish);
 
 		client.connect({ host: device.host, port: device.port || 8009 }, () => {
+			// Volume diatur di level perangkat Cast, tidak perlu join aplikasi
+			if (action === "volume_up" || action === "volume_down" || action === "set_volume") {
+				client.getVolume((err, vol) => {
+					if (err || !vol) return finish();
+					let lvl = (vol.level === undefined || vol.level === null) ? 0.5 : vol.level;
+					if (action === "volume_up") lvl = Math.min(1.0, lvl + 0.08);
+					else if (action === "volume_down") lvl = Math.max(0.0, lvl - 0.08);
+					else if (typeof value === "number") lvl = Math.max(0.0, Math.min(1.0, value));
+					client.setVolume({ level: lvl }, finish);
+				});
+				return;
+			}
+
 			client.getStatus((err, status) => {
 				if (err || !(status.applications || []).length) return finish();
 
